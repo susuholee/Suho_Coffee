@@ -1,0 +1,23 @@
+[
+  {
+    "id": "seed-admin-001",
+    "email": "admin@suhocafe.com",
+    "password_hash": "$2a$10$JmfsdYTnLkOSbNL7mJoUUO59llRW/HWqhcDua2xHBmeDvu5mGN2hi",
+    "name": "수호카페 최고관리자",
+    "phone": "010-1234-5678",
+    "role": "admin",
+    "status": "approved",
+    "created_at": "2026-09-06T08:07:01.030Z"
+  },
+  {
+    "id": "user_suho_001",
+    "email": "suho@suhocafe.com",
+    "password_hash": "$2a$10$KcfHxIeKB.065kEYLtPI1enYzIT1u4fat4mVl0gzlxCnGZ6QOWFre",
+    "name": "이수호",
+    "phone": "010-1234-5678",
+    "role": "admin",
+    "status": "approved",
+    "created_at": "2026-09-06T08:07:01.036Z",
+    "updated_at": "2026-09-06T08:35:48.021Z"
+  }
+]

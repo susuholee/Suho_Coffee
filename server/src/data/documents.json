@@ -1,0 +1,30 @@
+[
+  {
+    "id": "doc_1788684348255",
+    "title": "이수호-국문-졸업증명서-202605101800",
+    "file_name": "ì´ìí¸-êµ­ë¬¸-ì¡¸ìì¦ëªì-202605101800.pdf",
+    "file_url": "/uploads/%C3%AC%C2%9D%C2%B4%C3%AC%C2%88%C2%98%C3%AD%C2%98%C2%B8-%C3%AA%C2%B5%C2%AD%C3%AB%C2%AC%C2%B8-%C3%AC%C2%A1%C2%B8%C3%AC%C2%97%C2%85%C3%AC%C2%A6%C2%9D%C3%AB%C2%AA%C2%85%C3%AC%C2%84%C2%9C-202605101800.pdf",
+    "file_type": "pdf",
+    "file_size": 539532,
+    "extracted_text": "[파싱 알림] ì´ìí¸-êµ­ë¬¸-ì¡¸ìì¦ëªì-202605101800.pdf 파일 등록 완료 (텍스트 자동 추출 대기 중)",
+    "uploaded_by": "current-user",
+    "uploader_name": "수호카페 구성원",
+    "discord_notified": true,
+    "notion_notified": false,
+    "created_at": "2026-09-06T08:45:48.255Z"
+  },
+  {
+    "id": "doc_seed_001",
+    "title": "2026 수호카페 가맹점 표준 운영 매뉴얼",
+    "file_name": "2026_suho_cafe_manual.pdf",
+    "file_url": "/uploads/2026_suho_cafe_manual.pdf",
+    "file_type": "pdf",
+    "file_size": 2458000,
+    "extracted_text": "[수호카페 가맹점 표준 운영 매뉴얼 v2.0]\n\n제1장: 매장 오픈 및 마감 수칙\n1. 오픈 준비: 매일 오전 8시 머신 예열 및 원두 신선도 체크(에스프레소 추출 압력 9bar 확인).\n2. 위생 관리: 스팀 피처 및 제빙기 1일 2회 세척 소독 필수.\n3. 고객 응대: 주문 접수 후 3분 이내 음료 제공을 원칙으로 하며, 밝은 미소로 인사한다.\n\n제2장: 원두 및 레시피 표준\n- 시그니처 블렌드: 브라질 세하도 50% + 콜롬비아 수프레모 30% + 에티오피아 예가체프 20%.\n- 아메리카노: 에스프레소 2샷(36g) + 정수 온수/냉수 240ml.",
+    "uploaded_by": "seed-admin-001",
+    "uploader_name": "수호카페 최고관리자",
+    "discord_notified": true,
+    "notion_notified": false,
+    "created_at": "2026-09-05T08:44:24.294Z"
+  }
+]

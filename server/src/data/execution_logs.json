@@ -1,0 +1,62 @@
+[
+  {
+    "id": "log_1788687236288",
+    "workflow_id": "wf_seed_003",
+    "workflow_name": "머신 오류 및 긴급 문의 관리자 핫라인 에스컬레이션",
+    "trigger_type": "webhook",
+    "status": "success",
+    "details": "관리자 핫라인 긴급 알림 전송 완료 (등급: URGENT)",
+    "execution_time_ms": 1,
+    "executed_at": "2026-09-06T09:33:56.288Z"
+  },
+  {
+    "id": "log_1788687234213",
+    "workflow_id": "wf_seed_003",
+    "workflow_name": "머신 오류 및 긴급 문의 관리자 핫라인 에스컬레이션",
+    "trigger_type": "webhook",
+    "status": "success",
+    "details": "관리자 핫라인 긴급 알림 전송 완료 (등급: URGENT)",
+    "execution_time_ms": 2,
+    "executed_at": "2026-09-06T09:33:54.213Z"
+  },
+  {
+    "id": "log_1788687162861",
+    "workflow_id": "wf_seed_001",
+    "workflow_name": "매일 오전 8시 오픈 준비 수칙 노션 브리핑",
+    "trigger_type": "scheduled",
+    "status": "success",
+    "details": "노션 자동 동기화 성공 (결과: https://notion.so/suho-cafe/%E2%98%95%20%5B%EC%9E%90%EB%8F%99%20%EB%B8%8C%EB%A6%AC%ED%95%91%5D%20%EC%9D%BC%EC%9D%BC%20%EA%B0%80%EB%A7%B9%EC%A0%90%20%EC%98%A4%ED%94%88%20%EC%A4%80%EB%B9%84%20%EC%B2%B4%ED%81%AC%EB%A6%AC%EC%8A%A4%ED%8A%B8)",
+    "execution_time_ms": 3,
+    "executed_at": "2026-09-06T09:32:42.861Z"
+  },
+  {
+    "id": "log_1788687064417",
+    "workflow_id": "wf_seed_001",
+    "workflow_name": "매일 오전 8시 오픈 준비 수칙 노션 브리핑",
+    "trigger_type": "scheduled",
+    "status": "success",
+    "details": "노션 자동 동기화 성공 (결과: https://notion.so/suho-cafe/%E2%98%95%20%5B%EC%9E%90%EB%8F%99%20%EB%B8%8C%EB%A6%AC%ED%95%91%5D%20%EC%9D%BC%EC%9D%BC%20%EA%B0%80%EB%A7%B9%EC%A0%90%20%EC%98%A4%ED%94%88%20%EC%A4%80%EB%B9%84%20%EC%B2%B4%ED%81%AC%EB%A6%AC%EC%8A%A4%ED%8A%B8)",
+    "execution_time_ms": 2,
+    "executed_at": "2026-09-06T09:31:04.417Z"
+  },
+  {
+    "id": "log_seed_001",
+    "workflow_id": "wf_seed_001",
+    "workflow_name": "매일 오전 8시 오픈 준비 수칙 노션 브리핑",
+    "trigger_type": "scheduled",
+    "status": "success",
+    "details": "노션 일일 브리핑 페이지 생성 완료 (페이지 URL: https://notion.so/suho-cafe/daily-briefing)",
+    "execution_time_ms": 320,
+    "executed_at": "2026-09-06T08:00:00.000Z"
+  },
+  {
+    "id": "log_seed_002",
+    "workflow_id": "wf_seed_002",
+    "workflow_name": "신규 가맹 문서 등록 시 노션 자동 백업",
+    "trigger_type": "event",
+    "status": "success",
+    "details": "업로드된 파일(이수호-국문-졸업증명서.pdf) 노션 지식베이스 동기화 완료",
+    "execution_time_ms": 480,
+    "executed_at": "2026-09-06T08:45:48.000Z"
+  }
+]
