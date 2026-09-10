@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useCalendar from '../../hooks/useCalendar';
+import useCalendarReadState from '../../hooks/useCalendarReadState';
+import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { 
   Coffee, 
@@ -393,10 +395,15 @@ export default function AppLayout({ children }) {
   const notifiedAlerts = useRef(new Set());
   const location = useLocation();
   const navigate = useNavigate();
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: async () => (await axios.get('/api/auth/me')).data.user,
+    retry: false,
+  });
   const { data: calendarData, isFetching: isSyncing, isLoading: isCalendarLoading, error: calendarError, syncMutation } = useCalendar();
 
   const events = calendarData?.events || [];
-  const alertCount = calendarData?.totalCount || 0;
+  const { unreadCount: alertCount, isUnread, markRead, markAllRead } = useCalendarReadState(calendarData, currentUser?.id, calendarOpen);
   const syncState = calendarData?.sync;
   const calendarMessage = calendarError ? '일정을 확인하지 못했습니다. 잠시 후 다시 확인합니다.'
     : syncMutation.error && !syncMutation.error.response?.data?.sync ? '새로고침에 실패했습니다. 잠시 후 다시 시도해주세요.'
@@ -411,20 +418,22 @@ export default function AppLayout({ children }) {
     }
     if (calendarData?.sync?.status !== 'synced') return;
     const current = calendarData.events || [];
-    const changed = previousEvents.current && current.filter(event => previousEvents.current.get(event.id) !== event.revision);
+    const changed = previousEvents.current && current.filter(event => previousEvents.current.get(event.id) !== event.revision && isUnread(event));
     const newEvent = changed?.[0];
-    const imminent = (calendarData.activeAlerts || []).find(event => !notifiedAlerts.current.has(`${event.id}:${event.revision}:${event.timing_status}`));
-    if (newEvent) {
+    const imminent = (calendarData.activeAlerts || []).find(event => isUnread(event) && !notifiedAlerts.current.has(`${event.id}:${event.revision}:${event.timing_status}`));
+    if (calendarOpen) {
+      setLatestAlert(null);
+    } else if (newEvent) {
       const wasPresent = previousEvents.current.has(newEvent.id);
       setLatestAlert({ ...newEvent, alert_text: `${wasPresent ? '일정이 변경되었습니다.' : '새 일정이 등록되었습니다.'}${changed.length > 1 ? ` 외 ${changed.length - 1}건도 반영되었습니다.` : ''}` });
     } else if (imminent) {
       setLatestAlert(imminent);
     } else {
-      setLatestAlert(previous => previous && current.some(event => event.id === previous.id) ? previous : null);
+      setLatestAlert(previous => previous && current.some(event => event.id === previous.id && isUnread(event)) ? previous : null);
     }
     for (const event of calendarData.activeAlerts || []) notifiedAlerts.current.add(`${event.id}:${event.revision}:${event.timing_status}`);
     previousEvents.current = new Map(current.map(event => [event.id, event.revision]));
-  }, [calendarData]);
+  }, [calendarData, calendarOpen, isUnread]);
 
   const navItems = [
     { label: '대시보드', path: '/', icon: LayoutDashboard },
@@ -480,6 +489,7 @@ export default function AppLayout({ children }) {
             </div>
             <button
               onClick={() => {
+                markRead([latestAlert]);
                 setLatestAlert(null);
                 setCalendarOpen(false);
                 navigate('/calendar');
@@ -500,7 +510,7 @@ export default function AppLayout({ children }) {
             </button>
           </div>
           <button
-            onClick={() => setLatestAlert(null)}
+            onClick={() => { markRead([latestAlert]); setLatestAlert(null); }}
             aria-label="일정 알림 닫기"
             style={{ color: '#A09893', cursor: 'pointer', padding: '2px' }}
           >
@@ -545,10 +555,10 @@ export default function AppLayout({ children }) {
 
         <UserSection>
           <UserInfo>
-            <UserAvatar>팀</UserAvatar>
+            <UserAvatar>{currentUser?.name?.slice(0, 1) || '?'}</UserAvatar>
             <div>
-              <UserName>수호 매니저</UserName>
-              <UserRole>팀장 (Admin)</UserRole>
+              <UserName>{currentUser?.name || '로그인 필요'}</UserName>
+              <UserRole>{currentUser ? currentUser.role === 'admin' ? '팀장 (Admin)' : '팀원 (Member)' : '사용자 정보 없음'}</UserRole>
             </div>
           </UserInfo>
           <button 
@@ -573,13 +583,16 @@ export default function AppLayout({ children }) {
 
           <HeaderRight>
             <StatusIndicator>
-              <PulseDot /> 시스템 정상 가동 중
+              수호카페 플랫폼
             </StatusIndicator>
 
             {/* 구글 캘린더 알림 벨 */}
             <NotificationBox>
               <BellButton 
-                onClick={() => setCalendarOpen(!calendarOpen)}
+                onClick={() => {
+                  if (!calendarOpen) { markAllRead(); setLatestAlert(null); }
+                  setCalendarOpen(!calendarOpen);
+                }}
                 title="구글 캘린더 매장 일정 알림"
                 aria-label={`구글 캘린더 일정 알림 ${alertCount}건`}
                 aria-expanded={calendarOpen}

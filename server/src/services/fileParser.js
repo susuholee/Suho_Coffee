@@ -1,70 +1,110 @@
-const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
 const path = require('path');
-
-/**
- * 업로드된 파일 버퍼로부터 텍스트를 추출하는 서비스
- * @param {Buffer} buffer - 파일 데이터 버퍼
- * @param {string} originalName - 원본 파일명
- * @param {string} mimeType - 파일 MIME 타입
- * @returns {Promise<string>} 추출된 본문 텍스트
- */
-async function extractTextFromBuffer(buffer, originalName, mimeType) {
-  const ext = path.extname(originalName).toLowerCase().replace('.', '');
-
-  try {
-    // 1. PDF 파일 텍스트 추출
-    if (ext === 'pdf' || mimeType === 'application/pdf') {
-      if (typeof pdfParse === 'function') {
-        const data = await pdfParse(buffer);
-        return data.text ? data.text.trim() : '';
-      } else if (pdfParse.PDFParse) {
-        const parser = new pdfParse.PDFParse({ data: buffer });
-        const textResult = await parser.getText();
-        if (typeof parser.destroy === 'function') {
-          await parser.destroy();
-        }
-        if (typeof textResult === 'string') return textResult.trim();
-        if (textResult && textResult.text) return textResult.text.trim();
-        return String(textResult || '').trim();
+const JSZip = require('jszip');
+const { DOMParser } = require('@xmldom/xmldom');
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MIME_TYPES = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+function invalid(message) { return Object.assign(new Error(message), { status: 400, permanent: true }); }
+async function validateDocument(buffer, fileName) {
+  const type = path.extname(fileName).slice(1).toLowerCase();
+  if (!MIME_TYPES[type]) throw invalid('PDF, DOCX, PPTX 파일만 지원합니다.');
+  if (!buffer.length || buffer.length > MAX_FILE_SIZE) throw invalid('빈 파일 또는 50MB를 초과한 파일은 업로드할 수 없습니다.');
+  if (type === 'pdf') {
+    if (buffer.subarray(0, 5).toString() !== '%PDF-') throw invalid('확장자와 실제 PDF 파일 형식이 일치하지 않습니다.');
+  } else {
+    if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) throw invalid('올바른 Office 파일이 아닙니다. 암호가 걸린 문서는 해제 후 업로드하세요.');
+    let zip;
+    try { zip = await JSZip.loadAsync(buffer); } catch { throw invalid('손상되었거나 암호화된 Office 파일입니다.'); }
+    if (Object.keys(zip.files).length > 10000) throw invalid('문서 내부 항목 수가 처리 한도를 초과했습니다.');
+    if (!zip.file('[Content_Types].xml') || !zip.file(type === 'docx' ? 'word/document.xml' : 'ppt/presentation.xml')) {
+      throw invalid('확장자와 실제 Office 파일 형식이 일치하지 않습니다.');
+    }
+  }
+  return type;
+}
+async function readXml(zip, name, budget) {
+  const entry = zip.file(name);
+  if (!entry) throw invalid('문서의 필수 구성 요소가 없습니다: ' + name);
+  const xml = await new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    const stream = entry.internalStream('nodebuffer');
+    stream.on('data', chunk => {
+      size += chunk.length;
+      budget.bytes += chunk.length;
+      if (size > 10 * 1024 * 1024 || budget.bytes > 40 * 1024 * 1024) {
+        stream.pause();
+        reject(invalid('문서의 압축 해제 크기가 처리 한도를 초과했습니다.'));
+      } else chunks.push(chunk);
+    }).on('error', reject).on('end', () => resolve(Buffer.concat(chunks).toString('utf8'))).resume();
+  });
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw invalid('외부 엔티티가 포함된 문서는 지원하지 않습니다.');
+  let malformed = false;
+  const doc = new DOMParser({ errorHandler: { warning: () => {}, error: () => { malformed = true; }, fatalError: () => { malformed = true; } } }).parseFromString(xml, 'text/xml');
+  if (malformed || !doc.documentElement) throw invalid('문서 XML이 손상되었습니다.');
+  return doc;
+}
+const elements = (node, name) => Array.from(node.getElementsByTagNameNS('*', name));
+function inlineText(node) {
+  if (node.nodeType !== 1) return '';
+  if (node.localName === 't') return node.textContent;
+  if (node.localName === 'tab') return '\t';
+  if (node.localName === 'br' || node.localName === 'cr') return '\n';
+  return Array.from(node.childNodes).map(inlineText).join('');
+}
+function structuredText(node) {
+  const parts = [];
+  for (const child of Array.from(node.childNodes || [])) {
+    if (child.nodeType !== 1) continue;
+    if (child.localName === 'p') parts.push(inlineText(child));
+    else if (child.localName === 'tbl') {
+      const rows = Array.from(child.childNodes).filter(row => row.localName === 'tr');
+      for (const row of rows) {
+        const cells = Array.from(row.childNodes).filter(cell => cell.localName === 'tc');
+        parts.push(cells.map(cell => elements(cell, 'p').map(inlineText).join(' / ')).join('\t'));
+      }
+    } else parts.push(...structuredText(child));
+  }
+  return parts.filter(text => text.trim());
+}
+async function extractDocument(buffer, fileName) {
+  const type = await validateDocument(buffer, fileName);
+  let sections = [];
+  if (type === 'pdf') {
+    const { PDFParse } = require('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      sections = result.pages.map(page => ({ kind: 'page', number: page.num, text: page.text.trim() }));
+    } finally { await parser.destroy(); }
+  } else {
+    const zip = await JSZip.loadAsync(buffer);
+    const budget = { bytes: 0 };
+    if (type === 'docx') {
+      const doc = await readXml(zip, 'word/document.xml', budget);
+      sections = structuredText(doc.documentElement).map((text, i) => ({ kind: 'paragraph', number: i + 1, text }));
+    } else {
+      const presentation = await readXml(zip, 'ppt/presentation.xml', budget);
+      const relations = await readXml(zip, 'ppt/_rels/presentation.xml.rels', budget);
+      const targets = new Map(elements(relations, 'Relationship').filter(r => r.getAttribute('TargetMode') !== 'External').map(r => [r.getAttribute('Id'), r.getAttribute('Target')]));
+      const slides = elements(presentation, 'sldId');
+      for (let i = 0; i < slides.length; i++) {
+        const relation = Array.from(slides[i].attributes).find(a => a.localName === 'id' && a.namespaceURI);
+        const target = targets.get(relation?.value);
+        const name = target?.startsWith('/') ? target.slice(1) : path.posix.normalize('ppt/' + target);
+        if (!target || !/^ppt\/slides\/[^/]+\.xml$/.test(name)) throw invalid('슬라이드 참조가 올바르지 않습니다.');
+        const slide = await readXml(zip, name, budget);
+        sections.push({ kind: 'slide', number: i + 1, text: structuredText(slide.documentElement).join('\n') });
       }
     }
-
-    // 2. Word (.docx) 파일 텍스트 추출
-    if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value ? result.value.trim() : '';
-    }
-
-    // 3. 일반 텍스트 파일 (.txt, .md, .csv 등)
-    if (ext === 'txt' || ext === 'md' || ext === 'csv' || mimeType.startsWith('text/')) {
-      return buffer.toString('utf-8').trim();
-    }
-
-    // 4. PPTX 또는 기타 오피스/바이너리 파일의 경우 기본 텍스트 추출
-    if (ext === 'pptx' || ext === 'ppt') {
-      // PPTX 내 압축된 텍스트 스트림 기본 파싱 또는 메타 요약
-      const textContent = buffer.toString('utf-8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ');
-      const cleanWords = textContent.match(/[\uAC00-\uD7A3a-zA-Z0-9\s.,!?]{3,}/g) || [];
-      const extracted = cleanWords.join(' ').replace(/\s+/g, ' ').trim();
-      return extracted.length > 50 
-        ? extracted.slice(0, 3000) 
-        : `[PPT 문서: ${originalName}]\n본 슬라이드 문서의 프레젠테이션 텍스트가 정상 등록되었습니다.`;
-    }
-
-    // 5. 이미지 파일인 경우 메타 텍스트 기록
-    if (mimeType.startsWith('image/')) {
-      return `[이미지 문서: ${originalName}]\n이미지 파일이 사내 지식 라이브러리에 등록되었습니다.`;
-    }
-
-    // 기본 UTF-8 시도
-    return buffer.toString('utf-8').slice(0, 2000).trim();
-  } catch (err) {
-    console.error(`❌ 파일 파싱 실패 (${originalName}):`, err.message);
-    return `[파싱 알림] ${originalName} 파일 등록 완료 (텍스트 자동 추출 대기 중)`;
   }
+  const labels = { page: '페이지', slide: '슬라이드', paragraph: '문단' };
+  const text = sections.filter(s => s.text.trim()).map(s => '[' + labels[s.kind] + ' ' + s.number + ']\n' + s.text).join('\n\n');
+  if (text.length > 800000) throw invalid('추출 본문이 80만 자를 초과합니다. 문서를 나눠 업로드하세요.');
+  return { text, sections };
 }
-
-module.exports = {
-  extractTextFromBuffer,
-};
+async function extractTextFromBuffer(buffer, fileName) { return (await extractDocument(buffer, fileName)).text; }
+module.exports = { validateDocument, extractDocument, extractTextFromBuffer, MIME_TYPES, MAX_FILE_SIZE };

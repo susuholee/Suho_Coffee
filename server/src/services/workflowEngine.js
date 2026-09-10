@@ -66,19 +66,20 @@ async function executeWorkflow(workflowId) {
 
     // 액션 타입별 분기 실행
     if (wf.action_type === 'notion_briefing' || wf.action_type === 'notion_page_sync') {
-      const mockDoc = {
+      const workflowDocument = {
         title: wf.action_config?.title || wf.name,
         fileName: 'workflow_auto_trigger.txt',
         fileType: 'txt',
-        fileSize: 1024,
+        fileSize: Buffer.byteLength(wf.action_config?.message || wf.description || '', 'utf8'),
         extractedText: wf.action_config?.message || wf.description,
       };
-      const notionRes = await createNotionDocumentPage(mockDoc);
+      const notionRes = await createNotionDocumentPage(workflowDocument);
+      if (!notionRes.success) throw new Error(notionRes.message || '노션 연동에 실패했습니다.');
       executionDetails = `노션 자동 동기화 성공 (결과: ${notionRes.pageUrl || notionRes.message})`;
     } else if (wf.action_type === 'alert_escalation') {
-      executionDetails = `관리자 핫라인 긴급 알림 전송 완료 (등급: ${wf.action_config?.level || 'NORMAL'})`;
+      throw new Error('관리자 알림 전송 기능이 아직 연결되지 않았습니다.');
     } else {
-      executionDetails = `기본 액션 처리 완료: [${wf.action_type}] 정상 디스패치`;
+      throw new Error('아직 구현되지 않은 액션입니다.');
     }
 
     // 워크플로우 카운트 및 최근 실행 시각 갱신

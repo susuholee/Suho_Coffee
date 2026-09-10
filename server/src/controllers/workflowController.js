@@ -106,9 +106,9 @@ exports.runWorkflow = async (req, res, next) => {
     const { id } = req.params;
     const result = await executeWorkflow(id);
 
-    res.status(200).json({
-      success: true,
-      message: `워크플로우 [${result.workflow.name}] 실행 완료!`,
+    res.status(result.success ? 200 : 502).json({
+      success: result.success,
+      message: result.success ? `워크플로우 [${result.workflow.name}] 실행 완료!` : result.log.details,
       log: result.log,
       workflow: result.workflow,
     });

@@ -1,4 +1,7 @@
 import React from 'react';
+import axios from 'axios';
+import { useQueries } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { 
   Coffee, 
@@ -275,42 +278,51 @@ const StatusPill = styled.span`
 `;
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
+  const results = useQueries({ queries: ['/api/auth/users', '/api/documents', '/api/chat/sessions', '/api/workflows', '/api/workflows/logs'].map(url => ({
+    queryKey: ['dashboard', url],
+    queryFn: async () => (await axios.get(url)).data,
+    refetchInterval: 15000,
+  })) });
+  const count = (index, key, unit, filter = () => true) => results[index].data ? `${(results[index].data[key] || []).filter(filter).length}${unit}` : '—';
+  const state = index => results[index].isError ? '조회 실패' : results[index].isPending ? '불러오는 중' : '등록 데이터';
+  const logs = results[4].data?.logs || [];
   const stats = [
     {
       title: '가입 대기 팀원 (RBAC)',
-      value: '2명',
+      value: count(0, 'users', '명', user => user.status === 'pending'),
       label: '팀장 승인 대기 중',
       icon: Users,
       bgColor: '#FFFBEB',
       color: '#D97706',
-      badge: '승인 필요',
+      badge: state(0),
     },
     {
       title: '등록된 사내 문서',
-      value: '14건',
+      value: count(1, 'documents', '건'),
       label: 'PDF / Word / PPT 자동 파싱',
       icon: FileText,
       bgColor: '#EFF6FF',
       color: '#2563EB',
-      badge: 'Storage 연동',
+      badge: state(1),
     },
     {
       title: 'AI 지식 RAG & 상담',
-      value: '128회',
+      value: count(2, 'sessions', '건'),
       label: 'Gemini 3단 자동 요약 완료',
       icon: Bot,
       bgColor: '#F5F3FF',
       color: '#7C3AED',
-      badge: 'pgvector 가동',
+      badge: state(2),
     },
     {
       title: '자동화 워크플로우',
-      value: '6개',
+      value: count(3, 'workflows', '개'),
       label: 'Cron & Webhook 연동 중',
       icon: GitBranch,
       bgColor: '#ECFDF5',
       color: '#059669',
-      badge: '실시간 가동',
+      badge: state(3),
     },
   ];
 
@@ -319,22 +331,22 @@ export default function DashboardPage() {
       title: '스마트 문서 관리 & 공지 자동화',
       desc: 'PDF/Word/PPT 업로드 ➔ 텍스트 추출 ➔ 사내 공지 & Discord/Notion 알림',
       icon: FileText,
-      status: '준비 완료',
-      active: true,
+      status: '문서 관리',
+      active: false,
     },
     {
       title: 'AI 고객 응대 및 3단 대화 요약',
       desc: 'Gemini RAG 질의응답 ➔ 핵심 문의/조치 사항/추가 확인 3단 요약 리포트',
       icon: Sparkles,
-      status: '준비 완료',
-      active: true,
+      status: '상담 관리',
+      active: false,
     },
     {
       title: '워크플로우(시나리오) 엔진',
       desc: 'GitHub/Jira 웹훅 및 Cron 트리거 ➔ DB 적재 & 디스코드 웹훅 액션',
       icon: GitBranch,
-      status: '가동 중',
-      active: true,
+      status: '시나리오 관리',
+      active: false,
     },
     {
       title: '팀원 권한(RBAC) 승인 관리',
@@ -359,10 +371,10 @@ export default function DashboardPage() {
           </HeroSubtitle>
         </HeroTextGroup>
         <QuickActionGroup>
-          <ActionButton $primary>
+          <ActionButton $primary onClick={() => navigate('/chat')}>
             <Sparkles size={16} /> AI 상담 시작
           </ActionButton>
-          <ActionButton>
+          <ActionButton onClick={() => navigate('/documents')}>
             <FileText size={16} /> 문서 업로드
           </ActionButton>
         </QuickActionGroup>
@@ -394,7 +406,7 @@ export default function DashboardPage() {
         <SectionCard>
           <SectionHeader>
             <SectionTitle>
-              <Activity size={20} color="#D97706" /> 핵심 자동화 모듈 현황
+              <Activity size={20} color="#D97706" /> 주요 기능
             </SectionTitle>
           </SectionHeader>
           <ModuleList>
@@ -419,15 +431,18 @@ export default function DashboardPage() {
         <SectionCard>
           <SectionHeader>
             <SectionTitle>
-              <Clock size={20} color="#D97706" /> 최근 시스템 활동
+              <Clock size={20} color="#D97706" /> 최근 워크플로우 실행
             </SectionTitle>
           </SectionHeader>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ fontSize: '13px', color: '#6E6763', lineHeight: '1.6' }}>
-              • <strong>[문서 파싱]</strong> 2026_가맹점_운영매뉴얼.pdf 파싱 완료 (텍스트 적재)<br />
-              • <strong>[알림 발송]</strong> Discord #공지 채널 웹훅 전송 성공<br />
-              • <strong>[AI 요약]</strong> 세션 #104 상담 종료 및 3단 요약 리포트 저장<br />
-              • <strong>[RBAC]</strong> 신규 팀원 (user@suho.com) 가입 대기 등록
+              {results[4].isError ? '실행 내역을 불러오지 못했습니다.' : results[4].isPending ? '실행 내역을 불러오는 중입니다.' : logs.length === 0 ? '아직 실행 내역이 없습니다.' : logs.slice(0, 5).map(log => (
+                <div key={log.id} style={{ marginBottom: 12 }}>
+                  <strong>{log.workflow_name}</strong> · {log.status === 'success' ? '성공' : log.status === 'running' ? '실행 중' : '실패'}
+                  <div>{log.details}</div>
+                  <small>{new Date(log.executed_at).toLocaleString('ko-KR')}</small>
+                </div>
+              ))}
             </div>
           </div>
         </SectionCard>

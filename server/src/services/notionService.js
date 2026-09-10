@@ -82,7 +82,7 @@ async function createNotionDocumentPage(doc) {
       };
     } catch (err) {
       console.warn('⚠️ Notion API 호출 오류 (키/DB ID 확인 필요):', err.response?.data?.message || err.message);
-      // 실패 시에도 전체 프로세스가 중단되지 않도록 가상 결과 반환
+      // 문서 저장과 별도로 외부 연동 실패를 전달합니다.
       return {
         success: false,
         pageUrl: null,
@@ -91,13 +91,7 @@ async function createNotionDocumentPage(doc) {
     }
   }
 
-  // 2. Notion API 키가 아직 설정되지 않은 경우 (가상 연동 모드)
-  console.log('ℹ️ [Notion 연동] NOTION_API_KEY 미설정 (노션 연동 시뮬레이션 성공 처리)');
-  return {
-    success: true,
-    pageUrl: `https://notion.so/suho-cafe/${encodeURIComponent(doc.title)}`,
-    message: '노션 페이지 생성 시뮬레이션이 완료되었습니다. (실제 연동을 원하시면 .env에 NOTION_API_KEY와 NOTION_DATABASE_ID를 입력해 주세요)',
-  };
+  return { success: false, pageUrl: null, message: '노션 연결 설정이 필요합니다.' };
 }
 
 /**
@@ -206,16 +200,10 @@ async function createNotionChatEscalationPage(summaryData) {
     }
   }
 
-  // 모의 시뮬레이션 모드
-  return {
-    success: true,
-    pageUrl: `https://notion.so/suho-cafe/escalation-${summaryData.sessionId}`,
-    message: '노션 관리자 에스컬레이션 페이지가 생성되었습니다. (시뮬레이션 모드)',
-  };
+  return { success: false, pageUrl: null, message: '노션 연결 설정이 필요합니다.' };
 }
 
 module.exports = {
   createNotionDocumentPage,
   createNotionChatEscalationPage,
 };
-

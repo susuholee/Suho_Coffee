@@ -10,28 +10,7 @@ if (!fs.existsSync(path.dirname(dataFilePath))) {
   fs.mkdirSync(path.dirname(dataFilePath), { recursive: true });
 }
 
-const defaultSeedUsers = [
-  {
-    id: 'seed-admin-001',
-    email: 'admin@suhocafe.com',
-    password_hash: '$2a$10$JmfsdYTnLkOSbNL7mJoUUO59llRW/HWqhcDua2xHBmeDvu5mGN2hi', // admin1234!
-    name: '수호카페 최고관리자',
-    phone: '010-1234-5678',
-    role: 'admin',
-    status: 'approved',
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'user_suho_001',
-    email: 'suho@suhocafe.com',
-    password_hash: '$2a$10$KcfHxIeKB.065kEYLtPI1enYzIT1u4fat4mVl0gzlxCnGZ6QOWFre', // password123!
-    name: '이수호',
-    phone: '010-1234-5678',
-    role: 'admin',
-    status: 'pending',
-    created_at: new Date().toISOString(),
-  }
-];
+
 
 const loadLocalUsers = () => {
   try {
@@ -42,7 +21,7 @@ const loadLocalUsers = () => {
   } catch (err) {
     console.error('users.json 로드 실패:', err);
   }
-  return [...defaultSeedUsers];
+  return [];
 };
 
 const saveLocalUsers = (users) => {
@@ -437,7 +416,17 @@ exports.getMe = async (req, res) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    return res.status(200).json({ success: true, user: decoded });
+    let user;
+    if (isSupabaseConfigured()) {
+      const { data, error } = await supabase.from('users').select('id,email,name,phone,role,status').eq('id', decoded.id).single();
+      if (error) throw error;
+      user = data;
+    } else {
+      user = localUsers.find(item => item.id === decoded.id);
+    }
+    if (!user || user.status !== 'approved') return res.status(401).json({ success: false, message: '다시 로그인해주세요.' });
+    const { password_hash, ...safeUser } = user;
+    return res.status(200).json({ success: true, user: safeUser });
   } catch (err) {
     return res.status(401).json({ success: false, message: '유효하지 않거나 만료된 세션입니다.' });
   }

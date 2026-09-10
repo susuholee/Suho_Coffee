@@ -375,7 +375,7 @@ export default function LogsPage() {
   const metrics = useMemo(() => {
     const total = logs.length;
     if (total === 0) {
-      return { total: 0, successRate: '100%', avgLatency: '0ms', healthy: true };
+      return { total: 0, successRate: '—', avgLatency: '—', healthy: false };
     }
     const successCount = logs.filter(l => l.status === 'success').length;
     const rate = ((successCount / total) * 100).toFixed(1) + '%';
@@ -485,9 +485,9 @@ export default function LogsPage() {
             <Cpu size={22} />
           </MetricIconBox>
           <MetricInfo>
-            <MetricLabel>시스템 관제 상태</MetricLabel>
+            <MetricLabel>실행 기록 상태</MetricLabel>
             <MetricValue>
-              <PulseDot /> 정상 가동 중
+              {isLoading ? '불러오는 중' : logs.length === 0 ? '기록 없음' : metrics.healthy ? '성공 기록 우세' : '실패 기록 확인'}
             </MetricValue>
           </MetricInfo>
         </MetricCard>

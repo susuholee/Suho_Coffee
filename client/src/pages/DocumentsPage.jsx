@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -8,14 +8,9 @@ import {
   FileCheck, 
   FileCode, 
   Send, 
-  Bell, 
   Eye, 
-  Trash2, 
-  CheckCircle2, 
-  AlertCircle, 
   Loader2, 
   RefreshCw,
-  Search,
   Download,
   Sparkles,
   X
@@ -321,410 +316,208 @@ const TextContentBox = styled.div`
   font-family: monospace;
 `;
 
+const STATUS_LABELS = {
+  queued: '처리 대기', extracting: '본문 추출 중', summarizing: 'AI 요약 중',
+  completed: '요약 완료', failed: '처리 실패', needs_ocr: 'OCR 필요', legacy: '기존 문서',
+};
+const isProcessing = doc => ['queued', 'extracting', 'summarizing'].includes(doc?.status);
+const errorMessage = error => error?.response?.data?.message || error?.message || '요청을 처리하지 못했습니다.';
+const formatFileSize = bytes => bytes >= 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : Math.ceil((bytes || 0) / 1024) + ' KB';
+
 export default function DocumentsPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef(null);
-
+  const dialogRef = useRef(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [title, setTitle] = useState('');
-  const [autoNotice, setAutoNotice] = useState(true);
-  const [notifyNotion, setNotifyNotion] = useState(true); // 노션 기본 활성화
   const [isDragging, setIsDragging] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [message, setMessage] = useState('');
+  const [fileError, setFileError] = useState('');
 
-  // 1. 문서 목록 패칭 (React Query)
-  const { data: documents = [], isLoading, refetch } = useQuery({
+  const { data: documents = [], isLoading, error: listError, refetch } = useQuery({
     queryKey: ['documents'],
-    queryFn: async () => {
-      const res = await axios.get('/api/documents');
-      return res.data.documents || [];
-    },
+    queryFn: async () => (await axios.get('/api/documents')).data.documents || [],
+    refetchInterval: query => query.state.data?.some(isProcessing) ? 2000 : false,
   });
+  const { data: previewDoc, error: previewError, isLoading: previewLoading } = useQuery({
+    queryKey: ['document', selectedId],
+    queryFn: async () => (await axios.get('/api/documents/' + selectedId)).data.document,
+    enabled: Boolean(selectedId),
+    refetchInterval: query => isProcessing(query.state.data) ? 2000 : false,
+  });
+  useEffect(() => {
+    if (!selectedId) return;
+    const previousFocus = document.activeElement;
+    dialogRef.current?.focus();
+    return () => previousFocus?.focus?.();
+  }, [selectedId]);
 
-  // 2. 파일 업로드 및 텍스트 파싱 Mutation
   const uploadMutation = useMutation({
-    mutationFn: async (formData) => {
-      const res = await axios.post('/api/documents/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return res.data;
-    },
-    onSuccess: (data) => {
-      alert(`🎉 문서 등록 및 노션 연동 완료!\n${data.message}`);
-      queryClient.invalidateQueries(['documents']);
-      // 입력 초기화
+    mutationFn: async formData => (await axios.post('/api/documents/upload', formData)).data,
+    onSuccess: data => {
+      setMessage(data.message);
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
       setSelectedFile(null);
       setTitle('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     },
-    onError: (err) => {
-      alert(err.response?.data?.message || '문서 업로드 처리 중 오류가 발생했습니다.');
-    },
+    onError: error => setFileError(errorMessage(error)),
   });
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      if (!title) {
-        setTitle(file.name.replace(/\.[^/.]+$/, ''));
-      }
-    }
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      if (!title) {
-        setTitle(file.name.replace(/\.[^/.]+$/, ''));
-      }
-    }
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!selectedFile) {
-      alert('업로드할 파일을 선택해 주세요.');
+  const retryMutation = useMutation({
+    mutationFn: async id => (await axios.post('/api/documents/' + id + '/retry')).data,
+    onSuccess: data => {
+      setMessage(data.message);
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['document', data.document.id] });
+    },
+    onError: error => setFileError(errorMessage(error)),
+  });
+  function chooseFile(file) {
+    if (!file || uploadMutation.isPending) return;
+    setFileError('');
+    setMessage('');
+    if (!/\.(pdf|docx|pptx)$/i.test(file.name)) {
+      setFileError('PDF, DOCX, PPTX 파일만 지원합니다.');
       return;
     }
-
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('title', title || selectedFile.name);
-    formData.append('autoNotice', autoNotice);
-    formData.append('notifyNotion', notifyNotion);
-
-    uploadMutation.mutate(formData);
-  };
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
+    if (!file.size || file.size > 50 * 1024 * 1024) {
+      setFileError('빈 파일 또는 50MB를 초과한 파일은 업로드할 수 없습니다.');
+      return;
+    }
+    setSelectedFile(file);
+    setTitle(file.name.replace(/\.[^.]+$/, '').slice(0, 255));
+  }
+  function handleSubmit(event) {
+    event.preventDefault();
+    if (!selectedFile || uploadMutation.isPending) return;
+    setFileError('');
+    setMessage('');
+    const form = new FormData();
+    form.append('file', selectedFile);
+    form.append('title', title.trim() || selectedFile.name);
+    uploadMutation.mutate(form);
+  }
+  function dialogKeys(event) {
+    if (event.key === 'Escape') setSelectedId(null);
+    if (event.key !== 'Tab') return;
+    const controls = Array.from(dialogRef.current.querySelectorAll('button:not(:disabled), a[href], [tabindex="0"]'));
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first?.focus();
+    }
+  }
   return (
     <Container>
       <HeaderSection>
         <TitleGroup>
-          <PageTitle>
-            <FileText size={24} color="#D97706" /> 스마트 문서 관리 및 공지 자동화
-          </PageTitle>
-          <PageSubtitle>
-            사내 매뉴얼, 공지문(PDF, Word, PPT)을 업로드하면 텍스트가 자동 추출·적재되며 사내 공지 및 Discord/Notion 채널로 즉시 전송됩니다.
-          </PageSubtitle>
+          <PageTitle><FileText size={24} color="#D97706" /> 문서 업로드 및 AI 요약</PageTitle>
+          <PageSubtitle>PDF·Word·PPT의 본문을 추출하고 핵심 내용, 대상, 기한과 할 일을 정리합니다.</PageSubtitle>
         </TitleGroup>
-
-        <button 
-          onClick={() => refetch()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '8px 14px',
-            background: '#FFFFFF',
-            border: '1px solid #E6DFD5',
-            borderRadius: '6px',
-            fontSize: '13px',
-            fontWeight: 600,
-            color: '#6E6763',
-            cursor: 'pointer'
-          }}
-        >
-          <RefreshCw size={14} /> 새로고침
+        <button onClick={() => refetch()} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 10 }}>
+          <RefreshCw size={16} /> 새로고침
         </button>
       </HeaderSection>
-
-      {/* 상단 2열 그리드: 파일 업로더 & 공지 연동 옵션 */}
+      {message && <div role="status" style={{ color: '#166534' }}>{message}</div>}
+      {fileError && <div role="alert" style={{ color: '#B91C1C' }}>{fileError}</div>}
       <TopGrid>
-        {/* 파일 드래그앤드롭 카드 */}
         <Card>
-          <CardTitle>
-            <UploadCloud size={18} color="#D97706" /> 문서 파일 업로드 (Multer 연동)
-          </CardTitle>
-
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept=".pdf,.docx,.doc,.pptx,.ppt,image/*" 
-            style={{ display: 'none' }} 
-          />
-
-          {!selectedFile ? (
-            <DropZone 
-              $isDragging={isDragging}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <DropIconWrap>
-                <UploadCloud size={28} />
-              </DropIconWrap>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '15px', color: '#262220' }}>
-                  클릭하거나 파일을 이곳에 끌어다 놓으세요
-                </div>
-                <div style={{ fontSize: '12px', color: '#6E6763', marginTop: '4px' }}>
-                  지원 포맷: PDF, Word(.docx), PPT(.pptx), 이미지 (최대 50MB)
-                </div>
-              </div>
-            </DropZone>
-          ) : (
-            <SelectedFileCard>
-              <SelectedFileInfo>
-                <FileCheck size={24} color="#10B981" />
-                <div style={{ overflow: 'hidden' }}>
-                  <div style={{ fontWeight: 600, fontSize: '14px', textOverflow: 'ellipsis', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    {selectedFile.name}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6E6763' }}>
-                    {formatFileSize(selectedFile.size)}
-                  </div>
-                </div>
-              </SelectedFileInfo>
-              <button 
-                type="button" 
-                onClick={() => setSelectedFile(null)}
-                style={{ color: '#EF4444', padding: '6px', cursor: 'pointer' }}
-                title="파일 제거"
-              >
-                <X size={18} />
-              </button>
-            </SelectedFileCard>
-          )}
-
-          <div style={{ fontSize: '12px', color: '#6E6763', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Sparkles size={14} color="#D97706" />
-            업로드된 문서는 서버에서 즉시 본문 텍스트가 파싱되어 AI RAG 지식 베이스로 연결됩니다.
-          </div>
+          <CardTitle><UploadCloud size={18} /> 문서 파일 업로드</CardTitle>
+          <input type="file" aria-label="문서 파일 선택" ref={fileInputRef} accept=".pdf,.docx,.pptx"
+            onChange={event => chooseFile(event.target.files?.[0])} disabled={uploadMutation.isPending} style={{ display: 'none' }} />
+          <DropZone $isDragging={isDragging} role="button" tabIndex={0} aria-label="문서 파일 찾아보기"
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={event => { event.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={event => { event.preventDefault(); setIsDragging(false); chooseFile(event.dataTransfer.files?.[0]); }}>
+            <DropIconWrap><UploadCloud size={28} /></DropIconWrap>
+            <strong>클릭하거나 파일을 이곳에 끌어다 놓으세요</strong>
+            <span style={{ fontSize: 13 }}>PDF, Word(.docx), PPT(.pptx) · 최대 50MB</span>
+          </DropZone>
+          {selectedFile && <SelectedFileCard>
+            <SelectedFileInfo><FileCheck size={22} /><div>{selectedFile.name}<br /><small>{formatFileSize(selectedFile.size)}</small></div></SelectedFileInfo>
+            <button type="button" aria-label="선택 파일 제거" disabled={uploadMutation.isPending} onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}><X size={18} /></button>
+          </SelectedFileCard>}
+          <PageSubtitle>스캔본과 이미지 안의 글자는 OCR이 필요합니다. 현재는 텍스트가 포함된 문서를 지원합니다.</PageSubtitle>
         </Card>
-
-        {/* 메타데이터 및 공지 자동화 옵션 카드 */}
         <Card>
-          <CardTitle>
-            <Bell size={18} color="#D97706" /> 공지사항 & 외부 채널 푸시 설정
-          </CardTitle>
-
+          <CardTitle><Sparkles size={18} /> 핵심 내용 자동 정리</CardTitle>
+          <PageSubtitle>파일 저장 후 분석을 시작합니다. 이 화면을 떠나도 서버에서 처리를 계속합니다.</PageSubtitle>
           <Form onSubmit={handleSubmit}>
             <FormGroup>
               <Label htmlFor="docTitle">문서 제목</Label>
-              <StyledInput
-                id="docTitle"
-                type="text"
-                placeholder="예: 2026 수호카페 가맹점 운영 매뉴얼"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
+              <StyledInput id="docTitle" maxLength={255} value={title} onChange={event => setTitle(event.target.value)}
+                disabled={uploadMutation.isPending} placeholder="예: 하반기 직원 교육 안내" required />
             </FormGroup>
-
-            <CheckboxOptionGroup>
-              <CheckboxLabel>
-                <input 
-                  type="checkbox" 
-                  checked={autoNotice} 
-                  onChange={(e) => setAutoNotice(e.target.checked)} 
-                />
-                사내 공지사항(Notices)으로 자동 등록
-              </CheckboxLabel>
-
-              <CheckboxLabel>
-                <input 
-                  type="checkbox" 
-                  checked={notifyNotion} 
-                  onChange={(e) => setNotifyNotion(e.target.checked)} 
-                />
-                <strong>노션(Notion) 사내 데이터베이스 페이지 자동 생성</strong>
-              </CheckboxLabel>
-            </CheckboxOptionGroup>
-
             <SubmitButton type="submit" disabled={uploadMutation.isPending || !selectedFile}>
-              {uploadMutation.isPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  파일 파싱 및 공지 등록 중...
-                </>
-              ) : (
-                <>
-                  <Send size={16} />
-                  문서 업로드 및 자동화 실행
-                </>
-              )}
+              {uploadMutation.isPending ? <><Loader2 size={16} /> 파일 저장 중...</> : <><Send size={16} /> 업로드 및 요약 시작</>}
             </SubmitButton>
           </Form>
+          <PageSubtitle>문서에 없는 대상·기한은 미기재로 표시합니다. 중요한 날짜와 금액은 원문과 함께 확인하세요.</PageSubtitle>
         </Card>
       </TopGrid>
-
-      {/* 하단: 업로드된 사내 문서 목록 */}
-      <Card style={{ padding: 0 }}>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #E6DFD5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <CardTitle style={{ margin: 0 }}>
-            <FileCode size={18} color="#D97706" /> 등록된 사내 문서 목록 ({documents.length}건)
-          </CardTitle>
-        </div>
-
-        <TableWrapper>
-          <Table>
-            <thead>
-              <tr>
-                <Th>문서 제목 / 원본 파일명</Th>
-                <Th>포맷</Th>
-                <Th>파일 크기</Th>
-                <Th>등록 일시</Th>
-                <Th>외부 알림</Th>
-                <Th style={{ textAlign: 'right' }}>추출된 텍스트</Th>
-              </tr>
-            </thead>
+      <Card>
+        <CardTitle><FileCode size={18} /> 등록된 문서 ({documents.length}건)</CardTitle>
+        {listError ? <div role="alert">{errorMessage(listError)} <button onClick={() => refetch()}>다시 불러오기</button></div> :
+          <TableWrapper><Table>
+            <thead><tr><Th>문서 제목 / 파일명</Th><Th>포맷·크기</Th><Th>처리 상태</Th><Th>등록 일시</Th><Th>문서 확인</Th></tr></thead>
             <tbody>
-              {isLoading ? (
-                <tr>
-                  <Td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>
-                    문서 목록 로딩 중...
+              {isLoading ? <tr><Td colSpan={5}>문서 목록을 불러오는 중...</Td></tr> : documents.length === 0 ?
+                <tr><Td colSpan={5}>아직 등록된 문서가 없습니다. 첫 문서를 업로드해 보세요.</Td></tr> :
+                documents.map(doc => <Tr key={doc.id}>
+                  <Td><strong>{doc.title}</strong><div style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{doc.file_name}</div></Td>
+                  <Td><FileTypeBadge $type={doc.file_type}>{doc.file_type}</FileTypeBadge><div>{formatFileSize(doc.file_size)}</div></Td>
+                  <Td>
+                    <strong style={{ color: doc.status === 'failed' ? '#B91C1C' : doc.status === 'completed' ? '#166534' : '#6E6763' }}>
+                      {STATUS_LABELS[doc.status || 'legacy'] || doc.status}
+                    </strong>
+                    {isProcessing(doc) && <div style={{ fontSize: 12 }}>문서를 분석하고 있어요</div>}
+                    {doc.error_message && <div style={{ fontSize: 12, maxWidth: 280 }}>{doc.error_message}</div>}
+                    {doc.status === 'failed' && doc.has_original && <button disabled={retryMutation.isPending} onClick={() => retryMutation.mutate(doc.id)} style={{ marginTop: 8 }}>다시 시도</button>}
                   </Td>
-                </tr>
-              ) : documents.length === 0 ? (
-                <tr>
-                  <Td colSpan={6} style={{ textAlign: 'center', padding: '50px', color: '#A09893' }}>
-                    <AlertCircle size={36} style={{ marginBottom: '8px' }} />
-                    <div>아직 등록된 문서가 없습니다. 첫 문서를 업로드해 보세요!</div>
+                  <Td>{doc.created_at ? new Date(doc.created_at).toLocaleString('ko-KR') : '-'}</Td>
+                  <Td>
+                    <button aria-label={doc.title + ' 요약·원문 보기'} onClick={() => setSelectedId(doc.id)} style={{ display: 'flex', gap: 6, padding: 8 }}><Eye size={16} /> 요약·원문</button>
+                    {doc.has_original && <a href={'/api/documents/' + doc.id + '/download'} style={{ display: 'flex', gap: 6, padding: 8 }}><Download size={16} /> 원본 다운로드</a>}
                   </Td>
-                </tr>
-              ) : (
-                documents.map((doc) => (
-                  <Tr key={doc.id}>
-                    <Td>
-                      <div style={{ fontWeight: 600 }}>{doc.title}</div>
-                      <div style={{ fontSize: '12px', color: '#6E6763' }}>{doc.file_name}</div>
-                    </Td>
-
-                    <Td>
-                      <FileTypeBadge $type={doc.file_type}>
-                        {doc.file_type}
-                      </FileTypeBadge>
-                    </Td>
-
-                    <Td style={{ fontSize: '13px', color: '#6E6763' }}>
-                      {formatFileSize(doc.file_size)}
-                    </Td>
-
-                    <Td style={{ fontSize: '13px', color: '#6E6763' }}>
-                      {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}
-                    </Td>
-
-                    <Td>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {doc.notion_notified ? (
-                          <a 
-                            href={doc.notion_page_url || '#'} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            style={{ 
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontSize: '11px', 
-                              padding: '3px 8px', 
-                              background: '#F4F4F5', 
-                              color: '#18181B', 
-                              borderRadius: '4px', 
-                              fontWeight: 700,
-                              border: '1px solid #E4E4E7'
-                            }}
-                          >
-                            <span>📝 Notion 연동</span>
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: '11px', color: '#A09893' }}>미연동</span>
-                        )}
-                      </div>
-                    </Td>
-
-                    <Td style={{ textAlign: 'right' }}>
-                      <button
-                        onClick={() => setPreviewDoc(doc)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '6px 12px',
-                          background: '#F1EDE6',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color: '#4A2C2A',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <Eye size={14} /> 텍스트 보기
-                      </button>
-                    </Td>
-                  </Tr>
-                ))
-              )}
+                </Tr>)}
             </tbody>
-          </Table>
-        </TableWrapper>
+          </Table></TableWrapper>}
       </Card>
-
-      {/* 추출된 텍스트 미리보기 모달 */}
-      {previewDoc && (
-        <TextPreviewModalOverlay onClick={() => setPreviewDoc(null)}>
-          <TextPreviewModalBox onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#262220' }}>
-                  {previewDoc.title}
-                </h3>
-                <div style={{ fontSize: '12px', color: '#6E6763', marginTop: '2px' }}>
-                  파싱된 원문 텍스트 (AI RAG 임베딩 대상 데이터)
-                </div>
-              </div>
-              <button 
-                onClick={() => setPreviewDoc(null)}
-                style={{ color: '#6E6763', cursor: 'pointer', padding: '4px' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <TextContentBox>
-              {previewDoc.extracted_text || '추출된 본문 텍스트가 없습니다.'}
-            </TextContentBox>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setPreviewDoc(null)}
-                style={{
-                  padding: '8px 18px',
-                  background: '#4A2C2A',
-                  color: '#FFFFFF',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                닫기
-              </button>
-            </div>
-          </TextPreviewModalBox>
-        </TextPreviewModalOverlay>
-      )}
+      {selectedId && <TextPreviewModalOverlay onClick={() => setSelectedId(null)}>
+        <TextPreviewModalBox ref={dialogRef} role="dialog" aria-modal="true" aria-label="문서 요약 및 원문" tabIndex={-1}
+          onKeyDown={dialogKeys} onClick={event => event.stopPropagation()} style={{ overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <h2>{previewDoc?.title || '문서 상세'}</h2>
+            <button aria-label="문서 상세 닫기" onClick={() => setSelectedId(null)}><X size={22} /></button>
+          </div>
+          {previewLoading && <p>문서를 불러오는 중...</p>}
+          {previewError && <p role="alert">{errorMessage(previewError)}</p>}
+          {previewDoc && <>
+            <p role="status">{STATUS_LABELS[previewDoc.status || 'legacy'] || previewDoc.status}</p>
+            {previewDoc.error_message && <p role="alert">{previewDoc.error_message}</p>}
+            {previewDoc.summary ? <section aria-label="AI 요약">
+              <h3>{previewDoc.summary.title}</h3>
+              <p style={{ whiteSpace: 'pre-wrap', margin: '12px 0', lineHeight: 1.7 }}>{previewDoc.summary.summary}</p>
+              <h4>핵심 내용</h4>
+              {previewDoc.summary.key_points.length ? <ul style={{ paddingLeft: 22, margin: '10px 0' }}>{previewDoc.summary.key_points.map((point, i) => <li key={i}>{point}</li>)}</ul> : <p>별도 항목 없음</p>}
+              <p>대상: {previewDoc.summary.target_audience ?? '미기재'}</p>
+              <p>기한: {previewDoc.summary.deadline ?? '미기재'}</p>
+              <h4 style={{ marginTop: 12 }}>할 일</h4>
+              {previewDoc.summary.action_items.length ? <ul style={{ paddingLeft: 22, margin: '10px 0' }}>{previewDoc.summary.action_items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p>별도 항목 없음</p>}
+              <details style={{ marginTop: 12 }}><summary>요약 JSON 보기</summary><TextContentBox>{JSON.stringify(previewDoc.summary, null, 2)}</TextContentBox></details>
+            </section> : <p>{isProcessing(previewDoc) ? '요약을 준비하고 있습니다. 완료되면 자동으로 표시됩니다.' : '생성된 AI 요약이 없습니다.'}</p>}
+            <details open={!previewDoc.summary}>
+              <summary>추출 원문과 출처 보기</summary>
+              <TextContentBox style={{ marginTop: 12 }}>{previewDoc.extracted_text || '추출된 본문이 없습니다.'}</TextContentBox>
+            </details>
+            {previewDoc.has_original && <a href={'/api/documents/' + previewDoc.id + '/download'}>원본 다운로드</a>}
+          </>}
+        </TextPreviewModalBox>
+      </TextPreviewModalOverlay>}
     </Container>
   );
 }

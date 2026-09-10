@@ -451,7 +451,7 @@ export default function WorkflowsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries(['workflows']);
       setRunningWfId(null);
-      setToastMessage(`⚡ [${data.workflow.name}] 즉시 실행이 완료되었습니다! (노션 동기화 성공)`);
+      setToastMessage(data.message);
       setTimeout(() => setToastMessage(null), 4000);
     },
     onError: (err) => {
@@ -576,7 +576,7 @@ export default function WorkflowsPage() {
             <CheckCircle2 size={24} />
           </StatIconBox>
           <StatInfo>
-            <StatLabel>정상 가동 중 (Active)</StatLabel>
+            <StatLabel>활성화된 워크플로우</StatLabel>
             <StatValue>{activeCount}개</StatValue>
           </StatInfo>
         </StatCard>
@@ -604,7 +604,7 @@ export default function WorkflowsPage() {
                 <CardTop>
                   <WfName>{wf.name}</WfName>
                   <StatusBadge $active={isActive}>
-                    {isActive ? '가동 중' : '일시정지'}
+                    {isActive ? '활성화' : '일시정지'}
                   </StatusBadge>
                 </CardTop>
                 <WfDescription>{wf.description}</WfDescription>

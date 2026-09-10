@@ -28,6 +28,7 @@ const calendarRoutes = require('./routes/calendarRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
+require('./controllers/documentController').startDocumentWorker();
 app.use('/api/chat', chatRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/calendar', calendarRoutes);

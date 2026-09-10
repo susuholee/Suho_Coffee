@@ -5,7 +5,7 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 // 허용 확장자 (이미지 및 문서: PDF, DOCX, PPTX)
-const allowedFileTypes = /jpeg|jpg|png|gif|webp|pdf|docx|doc|pptx|ppt/;
+const allowedFileTypes = new Set(['.pdf', '.docx', '.pptx']);
 
 const upload = multer({
   storage: storage,
@@ -13,17 +13,10 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 최대 50MB
   },
   fileFilter: (req, file, cb) => {
-    const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedFileTypes.test(file.mimetype) || 
-      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
-      file.mimetype === 'application/pdf' ||
-      file.mimetype.startsWith('image/');
-
-    if (extname || mimetype) {
+    if (allowedFileTypes.has(path.extname(file.originalname).toLowerCase())) {
       return cb(null, true);
     }
-    cb(new Error('지원하지 않는 파일 형식입니다. (이미지, PDF, DOCX, PPTX만 지원)'));
+    cb(Object.assign(new Error('PDF, DOCX, PPTX 파일만 지원합니다.'), { status: 400 }));
   },
 });
 

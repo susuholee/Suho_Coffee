@@ -182,35 +182,7 @@ const SubmitButton = styled.button`
   }
 `;
 
-const QuickFillBox = styled.div`
-  background: ${({ theme }) => theme.colors.surfaceSubtle};
-  border: 1px dashed ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radii.md};
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  color: ${({ theme }) => theme.colors.textSecondary};
-`;
 
-const QuickFillBtn = styled.button`
-  padding: 6px 12px;
-  background: ${({ theme }) => theme.colors.surface};
-  border: 1px solid ${({ theme }) => theme.colors.border};
-  border-radius: ${({ theme }) => theme.radii.sm};
-  font-size: 12px;
-  font-weight: 600;
-  color: ${({ theme }) => theme.colors.accent};
-  display: flex;
-  align-items: center;
-  gap: 4px;
-
-  &:hover {
-    background: ${({ theme }) => theme.colors.accentLight};
-    border-color: ${({ theme }) => theme.colors.accent};
-  }
-`;
 
 const FooterText = styled.div`
   text-align: center;
@@ -245,16 +217,6 @@ export default function LoginPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errorMsg) setErrorMsg('');
     if (isPending) setIsPending(false);
-  };
-
-  // 빠른 관리자 계정 채우기 헬퍼
-  const handleQuickFillAdmin = () => {
-    setFormData({
-      email: 'admin@suhocafe.com',
-      password: 'admin1234!',
-    });
-    setErrorMsg('');
-    setIsPending(false);
   };
 
   const handleSubmit = async (e) => {
@@ -377,16 +339,6 @@ export default function LoginPage() {
           </SubmitButton>
         </Form>
 
-        {/* 테스트 편의용 최고관리자 퀵 필 */}
-        <QuickFillBox>
-          <div>
-            <strong>테스트용 관리자 계정</strong>
-            <div style={{ fontSize: '11px', color: '#A09893' }}>admin@suhocafe.com</div>
-          </div>
-          <QuickFillBtn type="button" onClick={handleQuickFillAdmin}>
-            <ShieldCheck size={14} /> 자동 입력
-          </QuickFillBtn>
-        </QuickFillBox>
 
         <FooterText>
           계정이 없으신가요?

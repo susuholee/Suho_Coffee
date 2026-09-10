@@ -264,8 +264,8 @@ exports.escalateToNotion = async (req, res, next) => {
 
     saveSessions(sessions);
 
-    res.status(200).json({
-      success: true,
+    res.status(notionResult.success ? 200 : 502).json({
+      success: notionResult.success,
       message: notionResult.message,
       pageUrl: notionResult.pageUrl,
       session,
