@@ -84,6 +84,36 @@ function createDocumentStore({ supabase = null, dataDir = path.join(__dirname, '
       if (!doc) throw Object.assign(new Error('실패한 문서만 재시도할 수 있습니다.'), { status: 409 });
       Object.assign(doc, patch); write(rows); return doc;
     },
+    async remove(id) {
+      const current = await this.get(id);
+      if (!current) throw Object.assign(new Error('문서를 찾을 수 없습니다.'), { status: 404 });
+      if (['extracting', 'summarizing'].includes(current.status)) {
+        throw Object.assign(new Error('분석 중인 문서는 처리가 끝난 뒤 삭제해 주세요.'), { status: 409 });
+      }
+      const token = randomUUID();
+      const patch = { status: 'deleting', lease_token: token, lease_until: null };
+      // Atomically prevent the worker from claiming a queued document during deletion.
+      if (supabase) {
+        let query = supabase.from('documents').update(patch).eq('id', id);
+        query = current.status == null ? query.is('status', null) : query.eq('status', current.status);
+        const locked = await result(query.select('id').maybeSingle());
+        if (!locked) throw Object.assign(new Error('문서 상태가 변경되었습니다. 새로고침 후 다시 시도하세요.'), { status: 409 });
+      } else {
+        const rows = read();
+        const row = rows.find(item => item.id === id && item.status === current.status);
+        if (!row) throw Object.assign(new Error('문서 상태가 변경되었습니다. 다시 시도하세요.'), { status: 409 });
+        Object.assign(row, patch); write(rows);
+      }
+      try {
+        if (current.storage_path) await this.removeOriginal(current.storage_path);
+      } catch (error) {
+        await this.update(id, { status: current.status || 'legacy', lease_token: null }, token);
+        throw error;
+      }
+      // If DB deletion fails, keep 'deleting' so another request can finish cleanup.
+      if (supabase) await result(supabase.from('documents').delete().eq('id', id).eq('lease_token', token));
+      else write(read().filter(row => !(row.id === id && row.lease_token === token)));
+    },
     async saveOriginal(key, buffer, type) {
       if (supabase) {
         await result(supabase.storage.from(bucket).upload(key, buffer, { contentType: MIME_TYPES[type], upsert: false }));
@@ -94,7 +124,7 @@ function createDocumentStore({ supabase = null, dataDir = path.join(__dirname, '
     },
     async removeOriginal(key) {
       if (supabase) await result(supabase.storage.from(bucket).remove([key]));
-      else await fs.promises.unlink(localPath(key));
+      else await fs.promises.unlink(localPath(key)).catch(error => { if (error.code !== 'ENOENT') throw error; });
     },
     async readOriginal(doc) {
       if (!doc.storage_path) throw Object.assign(new Error('이전 문서에는 저장된 원본이 없습니다. 다시 업로드하세요.'), { status: 404 });

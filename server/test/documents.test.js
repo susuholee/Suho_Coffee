@@ -19,6 +19,54 @@ async function office(files) {
 }
 const word = () => office({ 'word/document.xml': '<w:document xmlns:w="urn:word"><w:body><w:p><w:r><w:t>교육 안내</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>교육비</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>100원</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>' });
 
+test('rename preserves original and summary; deletion removes both record and file', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suho-document-edit-'));
+  const store = createDocumentStore({ dataDir: dir, storageDir: dir });
+  const id = randomUUID(), storage_path = id + '.pdf';
+  await store.saveOriginal(storage_path, Buffer.from('%PDF-test'), 'pdf');
+  await store.insert({ id, title: 'Before', file_name: 'original.pdf', storage_path, status: 'completed', summary, created_at: new Date().toISOString() });
+  await store.update(id, { title: 'After' });
+  const renamed = await store.get(id);
+  assert.equal(renamed.title, 'After');
+  assert.equal(renamed.file_name, 'original.pdf');
+  assert.deepEqual(renamed.summary, summary);
+  await store.remove(id);
+  assert.equal(await store.get(id), null);
+  assert.equal(fs.existsSync(path.join(dir, storage_path)), false);
+});
+
+test('deletion blocks active jobs and cancels queued jobs before storage cleanup', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suho-document-delete-'));
+  const store = createDocumentStore({ dataDir: dir, storageDir: dir });
+  const id = randomUUID(), storage_path = id + '.pdf';
+  await store.saveOriginal(storage_path, Buffer.from('%PDF-test'), 'pdf');
+  await store.insert({ id, storage_path, status: 'summarizing', created_at: new Date().toISOString() });
+  await assert.rejects(store.remove(id), { status: 409 });
+  assert.equal(fs.existsSync(path.join(dir, storage_path)), true);
+  await store.update(id, { status: 'queued' });
+  const removeOriginal = store.removeOriginal.bind(store);
+  store.removeOriginal = async key => {
+    assert.equal(await store.claim(), null);
+    await removeOriginal(key);
+  };
+  await store.remove(id);
+  assert.equal(await store.get(id), null);
+});
+
+test('failed storage deletion preserves document and permits retry', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suho-document-delete-fail-'));
+  const store = createDocumentStore({ dataDir: dir, storageDir: dir });
+  const id = randomUUID(), storage_path = id + '.pdf';
+  await store.insert({ id, storage_path, status: 'completed', created_at: new Date().toISOString() });
+  const removeOriginal = store.removeOriginal.bind(store);
+  store.removeOriginal = async () => { throw new Error('Storage unavailable'); };
+  await assert.rejects(store.remove(id), /Storage unavailable/);
+  assert.equal((await store.get(id)).status, 'completed');
+  store.removeOriginal = removeOriginal;
+  await store.remove(id); // A missing original is safe to clean up again.
+  assert.equal(await store.get(id), null);
+});
+
 test('DOCX worker preserves Korean paragraphs and table cells', async () => {
   const result = await parseInWorker(await word(), '교육.docx');
   assert.match(result.text, /교육 안내/);

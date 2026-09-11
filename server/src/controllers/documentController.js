@@ -59,6 +59,22 @@ function createDocumentController({ store }) {
       try { res.json({ success: true, document: publicDocument(await get(req.params.id), true) }); }
       catch (error) { next(error); }
     },
+    async renameDocument(req, res, next) {
+      try {
+        const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+        if (!title || title.length > 255) throw Object.assign(new Error('문서 제목은 1~255자로 입력해 주세요.'), { status: 400 });
+        const existing = await get(req.params.id);
+        if (existing.status === 'deleting') throw Object.assign(new Error('삭제 중인 문서는 수정할 수 없습니다.'), { status: 409 });
+        const doc = await store.update(existing.id, { title });
+        res.json({ success: true, document: publicDocument(doc, true), message: '문서 제목을 수정했습니다.' });
+      } catch (error) { next(error); }
+    },
+    async deleteDocument(req, res, next) {
+      try {
+        await store.remove(req.params.id);
+        res.json({ success: true, message: '문서와 원본 파일을 삭제했습니다.' });
+      } catch (error) { next(error); }
+    },
     async retryDocument(req, res, next) {
       try {
         const doc = await get(req.params.id);

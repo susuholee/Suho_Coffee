@@ -318,7 +318,7 @@ const TextContentBox = styled.div`
 
 const STATUS_LABELS = {
   queued: '처리 대기', extracting: '본문 추출 중', summarizing: 'AI 요약 중',
-  completed: '요약 완료', failed: '처리 실패', needs_ocr: 'OCR 필요', legacy: '기존 문서',
+  completed: '요약 완료', failed: '처리 실패', needs_ocr: 'OCR 필요', legacy: '기존 문서', deleting: '삭제 정리 필요',
 };
 const isProcessing = doc => ['queued', 'extracting', 'summarizing'].includes(doc?.status);
 const errorMessage = error => error?.response?.data?.message || error?.message || '요청을 처리하지 못했습니다.';
@@ -334,6 +334,10 @@ export default function DocumentsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [message, setMessage] = useState('');
   const [fileError, setFileError] = useState('');
+  const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const [editError, setEditError] = useState('');
 
   const { data: documents = [], isLoading, error: listError, refetch } = useQuery({
     queryKey: ['documents'],
@@ -373,6 +377,36 @@ export default function DocumentsPage() {
     },
     onError: error => setFileError(errorMessage(error)),
   });
+  const renameMutation = useMutation({
+    mutationFn: async ({ id, title: newTitle }) => (await axios.patch('/api/documents/' + id, { title: newTitle })).data,
+    onSuccess: data => {
+      setEditingId(null);
+      setEditError('');
+      setMessage(data.message);
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      queryClient.invalidateQueries({ queryKey: ['document', data.document.id] });
+    },
+    onError: error => setEditError(errorMessage(error)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async id => (await axios.delete('/api/documents/' + id)).data,
+    onSuccess: (data, id) => {
+      if (selectedId === id) setSelectedId(null);
+      if (editingId === id) setEditingId(null);
+      setMessage(data.message);
+      queryClient.removeQueries({ queryKey: ['document', id] });
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: error => { setFileError(errorMessage(error)); queryClient.invalidateQueries({ queryKey: ['documents'] }); },
+  });
+  const searchText = search.trim().normalize('NFKC').toLocaleLowerCase();
+  const visibleDocuments = documents.filter(doc => [doc.title, doc.file_name].some(value => (value || '').normalize('NFKC').toLocaleLowerCase().includes(searchText)));
+  function deleteDocument(doc) {
+    if (!window.confirm('“' + doc.title + '” 문서를 삭제할까요? 원본 파일과 요약도 삭제되며 복구할 수 없습니다.')) return;
+    setFileError('');
+    setMessage('');
+    deleteMutation.mutate(doc.id);
+  }
   function chooseFile(file) {
     if (!file || uploadMutation.isPending) return;
     setFileError('');
@@ -461,14 +495,28 @@ export default function DocumentsPage() {
       </TopGrid>
       <Card>
         <CardTitle><FileCode size={18} /> 등록된 문서 ({documents.length}건)</CardTitle>
+        <FormGroup>
+          <Label htmlFor="documentSearch">문서 검색</Label>
+          <StyledInput id="documentSearch" type="search" placeholder="문서 제목 또는 원본 파일명 검색" value={search} onChange={event => setSearch(event.target.value)} />
+          {searchText && <span role="status">검색 결과 {visibleDocuments.length}건 <button type="button" onClick={() => setSearch('')}>검색 초기화</button></span>}
+        </FormGroup>
         {listError ? <div role="alert">{errorMessage(listError)} <button onClick={() => refetch()}>다시 불러오기</button></div> :
           <TableWrapper><Table>
             <thead><tr><Th>문서 제목 / 파일명</Th><Th>포맷·크기</Th><Th>처리 상태</Th><Th>등록 일시</Th><Th>문서 확인</Th></tr></thead>
             <tbody>
               {isLoading ? <tr><Td colSpan={5}>문서 목록을 불러오는 중...</Td></tr> : documents.length === 0 ?
                 <tr><Td colSpan={5}>아직 등록된 문서가 없습니다. 첫 문서를 업로드해 보세요.</Td></tr> :
-                documents.map(doc => <Tr key={doc.id}>
-                  <Td><strong>{doc.title}</strong><div style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{doc.file_name}</div></Td>
+                visibleDocuments.length === 0 ? <tr><Td colSpan={5}>검색 결과가 없습니다. 다른 제목이나 파일명으로 검색해 주세요.</Td></tr> :
+                visibleDocuments.map(doc => <Tr key={doc.id}>
+                  <Td>
+                    {editingId === doc.id ? <form onSubmit={event => { event.preventDefault(); setEditError(''); renameMutation.mutate({ id: doc.id, title: editingTitle.trim() }); }}>
+                      <StyledInput aria-label="수정할 문서 제목" value={editingTitle} onChange={event => setEditingTitle(event.target.value)} maxLength={255} required autoFocus disabled={renameMutation.isPending} />
+                      <button type="submit" disabled={renameMutation.isPending || !editingTitle.trim()} style={{ padding: 8 }}>저장</button>
+                      <button type="button" disabled={renameMutation.isPending} onClick={() => { setEditingId(null); setEditError(''); }} style={{ padding: 8 }}>취소</button>
+                      {editError && <div role="alert">{editError}</div>}
+                    </form> : <strong>{doc.title}</strong>}
+                    <div style={{ fontSize: 12, overflowWrap: 'anywhere' }}>{doc.file_name}</div>
+                  </Td>
                   <Td><FileTypeBadge $type={doc.file_type}>{doc.file_type}</FileTypeBadge><div>{formatFileSize(doc.file_size)}</div></Td>
                   <Td>
                     <strong style={{ color: doc.status === 'failed' ? '#B91C1C' : doc.status === 'completed' ? '#166534' : '#6E6763' }}>
@@ -482,6 +530,10 @@ export default function DocumentsPage() {
                   <Td>
                     <button aria-label={doc.title + ' 요약·원문 보기'} onClick={() => setSelectedId(doc.id)} style={{ display: 'flex', gap: 6, padding: 8 }}><Eye size={16} /> 요약·원문</button>
                     {doc.has_original && <a href={'/api/documents/' + doc.id + '/download'} style={{ display: 'flex', gap: 6, padding: 8 }}><Download size={16} /> 원본 다운로드</a>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button aria-label={doc.title + ' 제목 수정'} disabled={doc.status === 'deleting' || renameMutation.isPending || deleteMutation.isPending} onClick={() => { setEditingId(doc.id); setEditingTitle(doc.title); setEditError(''); }} style={{ padding: 8 }}>제목 수정</button>
+                      <button aria-label={doc.title + ' 삭제'} disabled={['extracting', 'summarizing'].includes(doc.status) || deleteMutation.isPending || renameMutation.isPending} title={['extracting', 'summarizing'].includes(doc.status) ? '분석이 끝난 뒤 삭제할 수 있습니다.' : '문서와 원본 파일 삭제'} onClick={() => deleteDocument(doc)} style={{ padding: 8, color: '#B91C1C' }}>{doc.status === 'deleting' ? '삭제 다시 시도' : '삭제'}</button>
+                    </div>
                   </Td>
                 </Tr>)}
             </tbody>

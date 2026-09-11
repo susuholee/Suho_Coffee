@@ -11,6 +11,8 @@ router.get('/', documentController.getDocuments);
 
 // 특정 문서 조회
 router.get('/:id', documentController.getDocumentById);
+router.patch('/:id', documentController.renameDocument);
+router.delete('/:id', documentController.deleteDocument);
 router.get('/:id/download', documentController.downloadDocument);
 router.post('/:id/retry', documentController.retryDocument);
 
