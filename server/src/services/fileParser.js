@@ -6,11 +6,12 @@ const MIME_TYPES = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 function invalid(message) { return Object.assign(new Error(message), { status: 400, permanent: true }); }
 async function validateDocument(buffer, fileName) {
   const type = path.extname(fileName).slice(1).toLowerCase();
-  if (!MIME_TYPES[type]) throw invalid('PDF, DOCX, PPTX 파일만 지원합니다.');
+  if (!MIME_TYPES[type]) throw invalid('PDF, DOCX, PPTX, XLSX 파일만 지원합니다.');
   if (!buffer.length || buffer.length > MAX_FILE_SIZE) throw invalid('빈 파일 또는 50MB를 초과한 파일은 업로드할 수 없습니다.');
   if (type === 'pdf') {
     if (buffer.subarray(0, 5).toString() !== '%PDF-') throw invalid('확장자와 실제 PDF 파일 형식이 일치하지 않습니다.');
@@ -19,7 +20,8 @@ async function validateDocument(buffer, fileName) {
     let zip;
     try { zip = await JSZip.loadAsync(buffer); } catch { throw invalid('손상되었거나 암호화된 Office 파일입니다.'); }
     if (Object.keys(zip.files).length > 10000) throw invalid('문서 내부 항목 수가 처리 한도를 초과했습니다.');
-    if (!zip.file('[Content_Types].xml') || !zip.file(type === 'docx' ? 'word/document.xml' : 'ppt/presentation.xml')) {
+    const mainPart = { docx: 'word/document.xml', pptx: 'ppt/presentation.xml', xlsx: 'xl/workbook.xml' }[type];
+    if (!zip.file('[Content_Types].xml') || !zip.file(mainPart)) {
       throw invalid('확장자와 실제 Office 파일 형식이 일치하지 않습니다.');
     }
   }
@@ -86,6 +88,8 @@ async function extractDocument(buffer, fileName) {
     if (type === 'docx') {
       const doc = await readXml(zip, 'word/document.xml', budget);
       sections = structuredText(doc.documentElement).map((text, i) => ({ kind: 'paragraph', number: i + 1, text }));
+    } else if (type === 'xlsx') {
+      sections = await require('./excelParser').extractExcel(zip, readXml, budget, invalid);
     } else {
       const presentation = await readXml(zip, 'ppt/presentation.xml', budget);
       const relations = await readXml(zip, 'ppt/_rels/presentation.xml.rels', budget);
@@ -101,7 +105,7 @@ async function extractDocument(buffer, fileName) {
       }
     }
   }
-  const labels = { page: '페이지', slide: '슬라이드', paragraph: '문단' };
+  const labels = { page: '페이지', slide: '슬라이드', paragraph: '문단', sheet: '시트' };
   const text = sections.filter(s => s.text.trim()).map(s => '[' + labels[s.kind] + ' ' + s.number + ']\n' + s.text).join('\n\n');
   if (text.length > 800000) throw invalid('추출 본문이 80만 자를 초과합니다. 문서를 나눠 업로드하세요.');
   return { text, sections };

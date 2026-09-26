@@ -262,12 +262,14 @@ const FileTypeBadge = styled.span`
   text-transform: uppercase;
   background-color: ${({ $type }) => {
     if ($type === 'pdf') return '#FEE2E2';
+    if ($type === 'xlsx') return '#DCFCE7';
     if ($type === 'docx' || $type === 'doc') return '#DBEAFE';
     if ($type === 'pptx' || $type === 'ppt') return '#FEF3C7';
     return '#E0E7FF';
   }};
   color: ${({ $type }) => {
     if ($type === 'pdf') return '#DC2626';
+    if ($type === 'xlsx') return '#15803D';
     if ($type === 'docx' || $type === 'doc') return '#1D4ED8';
     if ($type === 'pptx' || $type === 'ppt') return '#D97706';
     return '#4338CA';
@@ -411,8 +413,8 @@ export default function DocumentsPage() {
     if (!file || uploadMutation.isPending) return;
     setFileError('');
     setMessage('');
-    if (!/\.(pdf|docx|pptx)$/i.test(file.name)) {
-      setFileError('PDF, DOCX, PPTX 파일만 지원합니다.');
+    if (!/\.(pdf|docx|pptx|xlsx)$/i.test(file.name)) {
+      setFileError('PDF, DOCX, PPTX, XLSX 파일만 지원합니다. 구형 XLS는 XLSX로 저장해 주세요.');
       return;
     }
     if (!file.size || file.size > 50 * 1024 * 1024) {
@@ -448,7 +450,7 @@ export default function DocumentsPage() {
       <HeaderSection>
         <TitleGroup>
           <PageTitle><FileText size={24} color="#D97706" /> 문서 업로드 및 AI 요약</PageTitle>
-          <PageSubtitle>PDF·Word·PPT의 본문을 추출하고 핵심 내용, 대상, 기한과 할 일을 정리합니다.</PageSubtitle>
+          <PageSubtitle>PDF·Word·PPT·Excel의 내용을 추출하고 핵심 내용, 대상, 기한과 할 일을 정리합니다.</PageSubtitle>
         </TitleGroup>
         <button onClick={() => refetch()} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 10 }}>
           <RefreshCw size={16} /> 새로고침
@@ -459,7 +461,7 @@ export default function DocumentsPage() {
       <TopGrid>
         <Card>
           <CardTitle><UploadCloud size={18} /> 문서 파일 업로드</CardTitle>
-          <input type="file" aria-label="문서 파일 선택" ref={fileInputRef} accept=".pdf,.docx,.pptx"
+          <input type="file" aria-label="문서 파일 선택" ref={fileInputRef} accept=".pdf,.docx,.pptx,.xlsx"
             onChange={event => chooseFile(event.target.files?.[0])} disabled={uploadMutation.isPending} style={{ display: 'none' }} />
           <DropZone $isDragging={isDragging} role="button" tabIndex={0} aria-label="문서 파일 찾아보기"
             onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInputRef.current?.click(); } }}
@@ -469,13 +471,14 @@ export default function DocumentsPage() {
             onDrop={event => { event.preventDefault(); setIsDragging(false); chooseFile(event.dataTransfer.files?.[0]); }}>
             <DropIconWrap><UploadCloud size={28} /></DropIconWrap>
             <strong>클릭하거나 파일을 이곳에 끌어다 놓으세요</strong>
-            <span style={{ fontSize: 13 }}>PDF, Word(.docx), PPT(.pptx) · 최대 50MB</span>
+            <span style={{ fontSize: 13 }}>PDF, Word(.docx), PPT(.pptx), Excel(.xlsx) · 최대 50MB</span>
           </DropZone>
           {selectedFile && <SelectedFileCard>
             <SelectedFileInfo><FileCheck size={22} /><div>{selectedFile.name}<br /><small>{formatFileSize(selectedFile.size)}</small></div></SelectedFileInfo>
             <button type="button" aria-label="선택 파일 제거" disabled={uploadMutation.isPending} onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}><X size={18} /></button>
           </SelectedFileCard>}
           <PageSubtitle>스캔본과 이미지 안의 글자는 OCR이 필요합니다. 현재는 텍스트가 포함된 문서를 지원합니다.</PageSubtitle>
+          <PageSubtitle>엑셀은 최대 20개 시트, 시트당 10,000행·256열, 전체 100,000셀을 지원합니다. 숨김 시트는 제외하고 수식은 저장된 결과로 요약합니다.</PageSubtitle>
         </Card>
         <Card>
           <CardTitle><Sparkles size={18} /> 핵심 내용 자동 정리</CardTitle>
@@ -551,6 +554,14 @@ export default function DocumentsPage() {
           {previewDoc && <>
             <p role="status">{STATUS_LABELS[previewDoc.status || 'legacy'] || previewDoc.status}</p>
             {previewDoc.error_message && <p role="alert">{previewDoc.error_message}</p>}
+            {previewDoc.file_type === 'xlsx' && <section aria-label="엑셀 시트 정보">
+              <h3>시트별 추출 정보</h3>
+              {(previewDoc.extracted_sections || []).map(sheet => <div key={sheet.number} style={{ marginTop: 10 }}>
+                <strong>{sheet.name}</strong> · {sheet.row_count}행 · 수식 {sheet.formula_count}개
+                {!sheet.text && <p>빈 시트</p>}
+                {sheet.warnings?.map((warning, index) => <p key={index} style={{ color: '#92400E', fontSize: 13 }}>{warning}</p>)}
+              </div>)}
+            </section>}
             {previewDoc.summary ? <section aria-label="AI 요약">
               <h3>{previewDoc.summary.title}</h3>
               <p style={{ whiteSpace: 'pre-wrap', margin: '12px 0', lineHeight: 1.7 }}>{previewDoc.summary.summary}</p>

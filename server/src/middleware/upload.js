@@ -5,7 +5,7 @@ const path = require('path');
 const storage = multer.memoryStorage();
 
 // 허용 확장자 (이미지 및 문서: PDF, DOCX, PPTX)
-const allowedFileTypes = new Set(['.pdf', '.docx', '.pptx']);
+const allowedFileTypes = new Set(['.pdf', '.docx', '.pptx', '.xlsx']);
 
 const upload = multer({
   storage: storage,
@@ -16,7 +16,7 @@ const upload = multer({
     if (allowedFileTypes.has(path.extname(file.originalname).toLowerCase())) {
       return cb(null, true);
     }
-    cb(Object.assign(new Error('PDF, DOCX, PPTX 파일만 지원합니다.'), { status: 400 }));
+    cb(Object.assign(new Error('PDF, DOCX, PPTX, XLSX 파일만 지원합니다.'), { status: 400 }));
   },
 });
 

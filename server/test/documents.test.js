@@ -19,6 +19,65 @@ async function office(files) {
 }
 const word = () => office({ 'word/document.xml': '<w:document xmlns:w="urn:word"><w:body><w:p><w:r><w:t>교육 안내</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>교육비</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>100원</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>' });
 
+async function excel({ rows = '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="inlineStr"><is><t>매출</t></is></c></row><row r="2"><c r="A2" s="1"><v>45292</v></c><c r="C2" s="2"><v>1234</v></c><c r="D2" s="3"><v>0.125</v></c><c r="E2"><f>C2*2</f><v>2468</v></c><c r="F2"><f>C2*3</f></c><c r="G2" t="e"><v>#DIV/0!</v></c></row>', date1904 = false } = {}) {
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+  return office({
+    'xl/workbook.xml': `<workbook xmlns:r="urn:r"><workbookPr date1904="${date1904 ? 1 : 0}"/><sheets><sheet name="매출" sheetId="2" r:id="second"/><sheet name="빈 시트" sheetId="1" r:id="first"/><sheet name="비공개" sheetId="3" state="hidden" r:id="hidden"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<Relationships><Relationship Id="first" Type="${rel}worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="second" Type="${rel}worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="hidden" Type="${rel}worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="styles" Type="${rel}styles" Target="styles.xml"/><Relationship Id="strings" Type="${rel}sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+    'xl/sharedStrings.xml': '<sst><si><r><t>거래</t></r><r><t>일자</t></r></si></sst>',
+    'xl/styles.xml': '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/><numFmt numFmtId="165" formatCode="#,##0&quot;원&quot;"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="10"/></cellXfs></styleSheet>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData/></worksheet>',
+    'xl/worksheets/sheet2.xml': `<worksheet><sheetData>${rows}</sheetData><mergeCells><mergeCell ref="A1:B1"/></mergeCells></worksheet>`,
+    'xl/worksheets/sheet3.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>HIDDEN_SECRET</t></is></c></row></sheetData></worksheet>',
+  });
+}
+
+test('XLSX preserves sheet order, sparse cell addresses, formats and cached formula results', async () => {
+  const result = await parseInWorker(await excel(), '매출.xlsx');
+  assert.deepEqual(result.sections.map(s => s.name), ['매출', '빈 시트']);
+  for (const value of ['거래일자', '2024-01-01', '1,234원', '12.50%', 'E2="2468"', 'F2="[수식 계산 결과 없음]"', '#DIV/0!', '병합 범위: A1:B1']) assert.ok(result.text.includes(value), value);
+  assert.equal(result.sections[0].formula_count, 2);
+  assert.ok(result.sections[0].warnings.some(w => w.includes('숨김 시트')));
+  assert.equal(result.sections[1].text, '');
+  assert.ok(!result.text.includes('HIDDEN_SECRET'));
+  assert.ok(!result.text.includes('C2*3'));
+});
+
+test('XLSX supports the 1904 calendar and retains literal strings and booleans', async () => {
+  const result = await extractDocument(await excel({ date1904: true, rows: '<row r="1"><c r="A1" s="1"><v>0</v></c><c r="B1" t="b"><v>0</v></c><c r="C1" t="inlineStr"><is><t>=DO_NOT_EXECUTE()</t></is></c><c r="D1"><v>0</v></c></row>' }), 'dates.xlsx');
+  assert.match(result.text, /1904-01-01/);
+  assert.match(result.text, /FALSE/);
+  assert.match(result.text, /=DO_NOT_EXECUTE/);
+  assert.match(result.text, /D1="0"/);
+});
+
+test('empty or oversized spreadsheets fail clearly instead of partial summaries or OCR', async () => {
+  await assert.rejects(extractDocument(await excel({ rows: '' }), 'empty.xlsx'), /셀 데이터가 없습니다/);
+  await assert.rejects(extractDocument(await excel({ rows: '<row r="10001"><c r="A10001"><v>1</v></c></row>' }), 'big.xlsx'), /10,000행/);
+  await assert.rejects(extractDocument(await excel({ rows: '<row r="1"><c r="IW1"><v>1</v></c></row>' }), 'wide.xlsx'), /256열/);
+  await assert.rejects(validateDocument(await excel(), 'legacy.xls'), /XLSX/);
+});
+
+test('XLSX goes through persistent storage, extraction and JSON summary and can be deleted', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suho-excel-pipeline-'));
+  const store = createDocumentStore({ dataDir: dir, storageDir: dir });
+  const id = randomUUID(), storage_path = id + '.xlsx', buffer = await excel();
+  await store.saveOriginal(storage_path, buffer, 'xlsx');
+  await store.insert({ id, storage_path, file_name: '매출.xlsx', status: 'queued', created_at: new Date().toISOString() });
+  const pipeline = createDocumentPipeline({ store, parse: extractDocument, summarize: createDocumentSummarizer({ generate: async content => {
+    assert.match(content, /매출/); assert.match(content, /12.50%/);
+    return summary;
+  } }) });
+  await pipeline.processNext();
+  const doc = await store.get(id);
+  assert.equal(doc.status, 'completed');
+  assert.deepEqual(doc.summary, summary);
+  assert.deepEqual(await store.readOriginal(doc), buffer);
+  assert.equal(doc.extracted_sections[0].kind, 'sheet');
+  await store.remove(id);
+  assert.equal(await store.get(id), null);
+});
+
 test('rename preserves original and summary; deletion removes both record and file', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suho-document-edit-'));
   const store = createDocumentStore({ dataDir: dir, storageDir: dir });

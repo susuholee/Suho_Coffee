@@ -23,7 +23,7 @@ function createDocumentStore({ supabase = null, dataDir = path.join(__dirname, '
     return data;
   }
   function localPath(key) {
-    if (!/^[a-f0-9-]{36}\.(pdf|docx|pptx)$/.test(key)) throw new Error('원본 파일 경로가 올바르지 않습니다.');
+    if (!/^[a-f0-9-]{36}\.(pdf|docx|pptx|xlsx)$/.test(key)) throw new Error('원본 파일 경로가 올바르지 않습니다.');
     return path.join(storageDir, key);
   }
   return {
