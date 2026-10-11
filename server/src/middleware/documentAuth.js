@@ -9,7 +9,7 @@ module.exports = async function documentAuth(req, res, next) {
     const decoded = jwt.verify(req.cookies?.suho_token || '', process.env.JWT_SECRET || 'suho-coffee-jwt-secret-key');
     let user;
     if (supabase) {
-      const { data, error } = await supabase.from('users').select('id,name,status').eq('id', decoded.id).single();
+      const { data, error } = await supabase.from('users').select('id,name,role,status').eq('id', decoded.id).single();
       if (error) throw error;
       user = data;
     } else {

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import WarningDialog from '../components/WarningDialog';
 import styled from 'styled-components';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -9,9 +10,6 @@ import {
   Eye, 
   EyeOff, 
   LogIn, 
-  AlertCircle, 
-  CheckCircle2,
-  ShieldCheck,
   Loader2 
 } from 'lucide-react';
 
@@ -74,31 +72,6 @@ const Subtitle = styled.p`
   font-size: 14px;
   color: ${({ theme }) => theme.colors.textSecondary};
   line-height: 1.5;
-`;
-
-const ErrorBanner = styled.div`
-  background-color: ${({ theme }) => theme.colors.dangerBg};
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: ${({ theme }) => theme.radii.md};
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: ${({ theme }) => theme.colors.danger};
-`;
-
-const PendingBanner = styled.div`
-  background-color: ${({ theme }) => theme.colors.warningBg};
-  border: 1px solid rgba(217, 119, 6, 0.3);
-  border-radius: ${({ theme }) => theme.radii.md};
-  padding: 12px 14px;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 13px;
-  color: #92400E;
-  line-height: 1.4;
 `;
 
 const Form = styled.form`
@@ -206,6 +179,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isPending, setIsPending] = useState(false);
+  const emailRef = useRef(null), passwordRef = useRef(null), warningFocusRef = useRef(null);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -221,12 +195,27 @@ export default function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setErrorMsg('');
     setIsPending(false);
+    const email = formData.email.trim();
+    setFormData(previous => ({ ...previous, email }));
+    emailRef.current.value = email;
+    warningFocusRef.current = null;
+    if (!email || !emailRef.current.validity.valid) {
+      warningFocusRef.current = emailRef.current;
+      setErrorMsg(!email ? '사내 이메일을 입력해 주세요.' : '올바른 이메일 주소를 입력해 주세요. 예: admin@suhocoffee.com');
+      return;
+    }
+    if (!formData.password) {
+      warningFocusRef.current = passwordRef.current;
+      setErrorMsg('비밀번호를 입력해 주세요.');
+      return;
+    }
 
     try {
       setLoading(true);
-      const res = await axios.post('/api/auth/login', formData);
+      const res = await axios.post('/api/auth/login', { ...formData, email });
 
       if (res.data.success) {
         // 로그인 성공 시 대시보드로 이동
@@ -257,28 +246,14 @@ export default function LoginPage() {
           </div>
         </HeaderGroup>
 
-        {/* 일반 에러 배너 */}
-        {errorMsg && (
-          <ErrorBanner>
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{errorMsg}</span>
-          </ErrorBanner>
-        )}
+        {(errorMsg || isPending) && <WarningDialog
+          title={isPending ? '관리자 승인 대기 중입니다' : '로그인 정보를 확인해 주세요'}
+          message={isPending ? '가입 승인이 아직 완료되지 않았습니다. 관리자 승인 후 로그인이 가능합니다.' : errorMsg}
+          returnFocusRef={warningFocusRef}
+          onClose={() => { setErrorMsg(''); setIsPending(false); }}
+        />}
 
-        {/* RBAC 승인 대기 계정 안내 배너 */}
-        {isPending && (
-          <PendingBanner>
-            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
-            <div>
-              <strong>승인 대기(Pending) 중인 계정입니다</strong>
-              <div style={{ marginTop: '2px' }}>
-                팀장(Admin)의 가입 승인이 아직 완료되지 않았습니다. 관리자 승인 후 로그인이 가능합니다.
-              </div>
-            </div>
-          </PendingBanner>
-        )}
-
-        <Form onSubmit={handleSubmit}>
+        <Form noValidate onSubmit={handleSubmit}>
           {/* 사내 이메일 */}
           <FormGroup>
             <Label htmlFor="email">사내 이메일 (ID)</Label>
@@ -288,6 +263,7 @@ export default function LoginPage() {
               </InputIcon>
               <StyledInput
                 id="email"
+                ref={emailRef}
                 name="email"
                 type="email"
                 placeholder="user@suhocafe.com"
@@ -307,6 +283,7 @@ export default function LoginPage() {
               </InputIcon>
               <StyledInput
                 id="password"
+                ref={passwordRef}
                 name="password"
                 type={showPassword ? 'text' : 'password'}
                 placeholder="비밀번호 입력"

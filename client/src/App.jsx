@@ -14,6 +14,7 @@ import AiChatPage from './pages/AiChatPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import LogsPage from './pages/LogsPage';
 import CalendarPage from './pages/CalendarPage';
+import ChatWidget from './components/chat/ChatWidget';
 
 // React Query 클라이언트 인스턴스
 const queryClient = new QueryClient({
@@ -51,6 +52,7 @@ export default function App() {
                     <Route path="/admin/members" element={<AdminMembersPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
+                  <ChatWidget />
                 </AppLayout>
               }
             />

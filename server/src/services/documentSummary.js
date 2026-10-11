@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+const { withGeminiRetry } = require('./geminiRetry');
 
 const summarySchema = {
   type: SchemaType.OBJECT,
@@ -48,7 +49,7 @@ function createDocumentSummarizer({ generate } = {}) {
         generationConfig: { responseMimeType: 'application/json', responseSchema: summarySchema, temperature: 0.1 },
       });
       call = async content => {
-        const result = await model.generateContent(JSON.stringify({ document_content: content }), { timeout: 90000 });
+        const result = await withGeminiRetry(() => model.generateContent(JSON.stringify({ document_content: content }), { timeout: 90000 }));
         return result.response.text();
       };
     }
